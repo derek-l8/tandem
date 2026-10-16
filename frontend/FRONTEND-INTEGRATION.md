@@ -17,7 +17,7 @@ The combined-deployment template is inactive. Its presence does not establish a 
 
 ## Connection points
 
-- `src/data/inventory.json` is the canonical seeded seller catalog, containing 61 size-specific SKUs. Its fields match the inventory schema exactly: `sku`, `name`, `category`, `color`, `material`, `size`, `price`, `stock`, and `image`.
+- `src/data/inventory.json` is the canonical seeded seller catalog, with one record per size-specific SKU. Its fields match the inventory schema exactly: `sku`, `name`, `category`, `color`, `material`, `size`, `price`, `stock`, and `image`.
 - `src/data/product-meta.json` holds presentation metadata separately, including style and fit tags. This metadata is not part of the inventory message schema.
 - `src/contracts.ts` represents the repository's JSON message contract in TypeScript.
 - `src/catalog.ts` resolves inventory image filenames for frontend display, adapts catalog data, and provides the local demo generation and scoring helpers.
@@ -45,3 +45,4 @@ Sizes, budget, avoided colors, and explicit notes are hard rules. Offer variatio
 Replace the local simulation and progress timing with validated service responses at each stage. Keep the five-bundle ratings → seller analysis → one final offer sequence; accepting an initial bundle is not the final contract decision. Preserve the same agreed SKUs, sizes, and total in both workspaces.
 
 The current store only synchronizes tabs/windows sharing the same browser profile and origin. A backend integration will need a shared session identifier and server updates for separate devices or browser profiles. Preset role buttons provide no authenticated identity. The local JSON catalog and browser session do not provide server persistence, stock reservation, payment, or fulfillment.
+

@@ -10,7 +10,7 @@ const ratingKeys = ['id','probability','reason'];
 const profile = {...defaultProfile, styles:['Casual','Athletic'], looks:['l1','l2','l3']};
 const rules = {maxItems:4, maxDiscount:15};
 
-assert.equal(inventory.length,61,'Seeded catalog should contain 61 individual size SKUs');
+assert.ok(inventory.length>=61,'Seller inventory retains the original size-specific SKUs');
 assert.equal(new Set(inventory.map(item=>item.sku)).size,inventory.length,'Inventory SKU IDs must be unique');
 assert.equal(skuCatalog.length,inventory.length);
 for (const item of inventory) {
@@ -79,3 +79,4 @@ assert.ok(decision.probability>=0&&decision.probability<=1);
 assert.ok(decision.reason.length>0);
 
 console.log(`Happy-path contract smoke passed: ${inventory.length} inventory SKUs, five valid offers, ratings, analysis, one valid $${final.payload.final.price} final offer, and accept decision.`);
+

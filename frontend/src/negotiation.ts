@@ -62,8 +62,9 @@ export function finalOffer(profile:Profile,rules:Rules,bundles:Bundle[],ratings:
  skus=skus.filter(sku=>analysis.keep_skus.includes(sku));
  const items_total=skus.reduce((sum,sku)=>sum+findProduct(sku).price,0);
  const price=Math.max(Math.ceil(items_total*Math.max(.6,1-rules.maxDiscount/100)),Math.min(149,items_total,profile.budget));
- const why='Based on '+best.id+' ('+Math.round(best.probability*100)+'% estimated buy chance): keep the neutral basics, swap the hooded layer for a crewneck, and leave out the low-rated track styling.';
- const bundle:Bundle={...original,id:'final',name:'Your everyday edit',subtitle:'Refined by Sunday Theory',skus,images:skus.map(sku=>findProduct(sku).image),items_total,price,probability:.88,scores:{price:96,fit:97,style:98},reason:why,tradeoff:'A crewneck, joggers, and tee in your requested sizes. A simple final offer shaped by the five initial ratings.',issue:'none'};
+ const revised=original.skus.includes(hoodie)&&skus.includes(crew);
+ const why='Based on '+best.id+' ('+Math.round(best.probability*100)+'% estimated buy chance): '+(revised?'swap the hooded layer for a crewneck, retain the neutral basics':'retain the strongest pieces from your preferred offer')+(analysis.drop_skus.length?', and leave out the low-rated pieces.':'.');
+ const bundle:Bundle={...original,id:'final',name:'Your everyday edit',subtitle:'Refined by Sunday Theory',skus,images:skus.map(sku=>findProduct(sku).image),items_total,price,probability:.88,scores:{price:96,fit:97,style:98},reason:why,tradeoff:skus.map(sku=>findProduct(sku).name).join(' + ')+'. Your requested sizes, shaped by the five initial ratings.',issue:'none'};
  const payload={final:{...wireBundle(bundle),savings:items_total-price,why}};
  return {bundle,payload,check:validateFinalPayload(payload,buyerContext(profile),inventory,rules.maxItems,rules.maxDiscount,analysis.drop_skus)};
 }

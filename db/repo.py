@@ -27,6 +27,7 @@ from models.schemas import (
     ItemHeat,
     Judgment,
     Negotiation,
+    RoundAnalysis,
     Status,
     Step,
 )
@@ -64,6 +65,9 @@ class Repo(ABC):
     async def list_item_heat(self, negotiation_id: str, round: int) -> List[ItemHeat]: ...
 
     @abstractmethod
+    async def get_analysis(self, negotiation_id: str, round: int) -> Optional[RoundAnalysis]: ...
+
+    @abstractmethod
     async def list_events(self, negotiation_id: str, after: int = 0) -> List[Event]: ...
 
     @abstractmethod
@@ -81,6 +85,7 @@ class Repo(ABC):
         judgments: Sequence[Judgment] = (),
         heat_round: Optional[int] = None,
         heat: Sequence[ItemHeat] = (),
+        analysis: Optional[RoundAnalysis] = None,
         events: Sequence[EventSpec] = (),
     ) -> bool:
         """Atomically persist a finished step. Returns False if the lease or step was lost."""
@@ -105,6 +110,7 @@ class _MemoryStore:
         self.bundles: List[Bundle] = []
         self.judgments: List[Judgment] = []
         self.heat: Dict[Tuple[str, int], List[ItemHeat]] = {}
+        self.analyses: Dict[Tuple[str, int], RoundAnalysis] = {}
         self.events: List[Event] = []
 
 
@@ -120,7 +126,7 @@ class MemoryRepo(Repo):
 
     def seed_items(self, items: Sequence[Item]) -> None:
         for item in items:
-            self.s.items[item.id] = item
+            self.s.items[item.sku] = item
 
     def _event(self, negotiation_id: str, type_: str, payload: Dict[str, Any]) -> Event:
         ev = Event(id=len(self.s.events) + 1, negotiation_id=negotiation_id, type=type_, payload=payload, ts=_now())
@@ -129,7 +135,7 @@ class MemoryRepo(Repo):
 
     async def create_negotiation(self, buyer_input, brief=None):
         neg = Negotiation(id=str(uuid.uuid4()), buyer_input=buyer_input, brief=brief,
-                          step=Step.R1_PROPOSE if brief else Step.BRIEF)
+                          step=Step.PROPOSE if brief else Step.BRIEF)
         self.s.negotiations[neg.id] = {"neg": neg, "lease_owner": None, "lease_until": None}
         if brief:
             self._event(neg.id, "brief", brief.model_dump())
@@ -168,12 +174,15 @@ class MemoryRepo(Repo):
     async def list_item_heat(self, negotiation_id, round):
         return list(self.s.heat.get((negotiation_id, round), []))
 
+    async def get_analysis(self, negotiation_id, round):
+        return self.s.analyses.get((negotiation_id, round))
+
     async def list_events(self, negotiation_id, after=0):
         return [e for e in self.s.events if e.negotiation_id == negotiation_id and e.id > after]
 
     async def commit_step(self, negotiation_id, owner, from_step, to_step, *, lease_seconds,
                           status=Status.RUNNING, brief=None, bundles=(), judgments=(),
-                          heat_round=None, heat=(), events=()):
+                          heat_round=None, heat=(), analysis=None, events=()):
         row = self.s.negotiations.get(negotiation_id)
         if row is None or row["lease_owner"] != owner or row["neg"].step != from_step:
             return False
@@ -184,6 +193,8 @@ class MemoryRepo(Repo):
         self.s.judgments.extend(judgments)
         if heat_round is not None:
             self.s.heat[(negotiation_id, heat_round)] = list(heat)
+        if analysis is not None:
+            self.s.analyses[(negotiation_id, analysis.round)] = analysis
         for type_, payload in events:
             self._event(negotiation_id, type_, payload)
         neg.step, neg.status = to_step, status
@@ -249,7 +260,7 @@ class PostgresRepo(Repo):
     async def create_negotiation(self, buyer_input, brief=None):
         conn = await self._c()
         neg_id = str(uuid.uuid4())
-        step = Step.R1_PROPOSE if brief else Step.BRIEF
+        step = Step.PROPOSE if brief else Step.BRIEF
         async with conn.transaction():
             row = await (await conn.execute(
                 "insert into negotiations (id, buyer_input, brief, step) values (%s, %s, %s, %s) returning *",
@@ -288,7 +299,7 @@ class PostgresRepo(Repo):
 
     async def list_items(self):
         conn = await self._c()
-        rows = await (await conn.execute("select * from items order by id")).fetchall()
+        rows = await (await conn.execute("select sku, name, category, color, material, size, price, stock, image from items order by sku")).fetchall()
         return [Item.model_validate(r) for r in rows]
 
     async def list_bundles(self, negotiation_id, round=None):
@@ -299,7 +310,7 @@ class PostgresRepo(Repo):
             (negotiation_id, round, round),
         )).fetchall()
         return [Bundle(id=str(r["id"]), negotiation_id=str(r["negotiation_id"]), round=r["round"], name=r["name"],
-                       item_ids=list(r["item_ids"]), price_cents=r["price_cents"], rationale=r["rationale"])
+                       skus=list(r["skus"]), price=r["price"], pitch=r["pitch"])
                 for r in rows]
 
     async def list_judgments(self, negotiation_id, round=None):
@@ -315,11 +326,18 @@ class PostgresRepo(Repo):
     async def list_item_heat(self, negotiation_id, round):
         conn = await self._c()
         rows = await (await conn.execute(
-            "select * from item_heat where negotiation_id = %s and round = %s order by score desc, item_id",
+            "select * from item_heat where negotiation_id = %s and round = %s order by score desc, sku",
             (negotiation_id, round),
         )).fetchall()
-        return [ItemHeat(item_id=r["item_id"], score=r["score"], label=HeatLabel(r["label"]),
+        return [ItemHeat(sku=r["sku"], score=r["score"], label=HeatLabel(r["label"]),
                          bundle_count=r["bundle_count"]) for r in rows]
+
+    async def get_analysis(self, negotiation_id, round):
+        conn = await self._c()
+        row = await (await conn.execute(
+            "select payload from analyses where negotiation_id = %s and round = %s", (negotiation_id, round),
+        )).fetchone()
+        return RoundAnalysis.model_validate(row["payload"]) if row else None
 
     async def list_events(self, negotiation_id, after=0):
         conn = await self._c()
@@ -331,7 +349,7 @@ class PostgresRepo(Repo):
 
     async def commit_step(self, negotiation_id, owner, from_step, to_step, *, lease_seconds,
                           status=Status.RUNNING, brief=None, bundles=(), judgments=(),
-                          heat_round=None, heat=(), events=()):
+                          heat_round=None, heat=(), analysis=None, events=()):
         conn = await self._c()
         async with conn.transaction():
             cur = await conn.execute(
@@ -347,9 +365,9 @@ class PostgresRepo(Repo):
             async with conn.cursor() as c:
                 if bundles:
                     await c.executemany(
-                        """insert into bundles (id, negotiation_id, round, name, item_ids, price_cents, rationale)
+                        """insert into bundles (id, negotiation_id, round, name, skus, price, pitch)
                            values (%s, %s, %s, %s, %s, %s, %s)""",
-                        [(b.id, b.negotiation_id, b.round, b.name, b.item_ids, b.price_cents, b.rationale)
+                        [(b.id, b.negotiation_id, b.round, b.name, b.skus, b.price, b.pitch)
                          for b in bundles],
                     )
                 if judgments:
@@ -362,10 +380,15 @@ class PostgresRepo(Repo):
                     )
                 if heat_round is not None and heat:
                     await c.executemany(
-                        """insert into item_heat (negotiation_id, round, item_id, score, label, bundle_count)
+                        """insert into item_heat (negotiation_id, round, sku, score, label, bundle_count)
                            values (%s, %s, %s, %s, %s, %s)""",
-                        [(negotiation_id, heat_round, h.item_id, h.score, h.label.value, h.bundle_count)
+                        [(negotiation_id, heat_round, h.sku, h.score, h.label.value, h.bundle_count)
                          for h in heat],
+                    )
+                if analysis is not None:
+                    await c.execute(
+                        "insert into analyses (negotiation_id, round, payload) values (%s, %s, %s)",
+                        (negotiation_id, analysis.round, self._jsonb(analysis.model_dump(mode="json"))),
                     )
                 if events:
                     await c.executemany(

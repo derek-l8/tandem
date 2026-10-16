@@ -1,14 +1,17 @@
-"""Guardrails on agent output before the middle man accepts it."""
+"""Guardrails on agent output before the middle man accepts it (json_formats.md section 4)."""
 
 from __future__ import annotations
 
 from typing import Dict, Iterable, List, Optional
 
-from models.schemas import BundleDraft, Item
+from middleman import rules
+from models.schemas import BuyerBrief, BundleDraft, Item
 
 # Bundle price must land within this band of the sum of its item prices.
 MIN_PRICE_RATIO = 0.6
 MAX_PRICE_RATIO = 1.05
+MIN_ITEMS = 2
+MAX_ITEMS = 5
 
 
 class ValidationFailed(Exception):
@@ -22,39 +25,60 @@ def validate_bundles(
     inventory: Dict[str, Item],
     min_count: int,
     max_count: int,
-    banned_item_ids: Optional[Iterable[str]] = None,
+    banned_skus: Optional[Iterable[str]] = None,
+    brief: Optional[BuyerBrief] = None,
 ) -> None:
-    """Raise ValidationFailed listing every problem with a seller's bundle set."""
+    """Raise ValidationFailed listing every problem with a seller's bundle set.
+
+    With a brief, the buyer's hard rules (sizes, colors_avoid, budget, "must include" notes)
+    are enforced too.
+    """
     errors: List[str] = []
-    banned = set(banned_item_ids or ())
+    banned = set(banned_skus or ())
 
     if not (min_count <= len(drafts) <= max_count):
         errors.append(f"expected {min_count}-{max_count} bundles, got {len(drafts)}")
 
+    seen = {}
     for i, d in enumerate(drafts):
         label = f"bundle {i + 1} ({d.name!r})"
-        if not d.item_ids:
-            errors.append(f"{label}: has no items")
-            continue
-        if len(set(d.item_ids)) != len(d.item_ids):
-            errors.append(f"{label}: repeats an item")
-        unknown = [x for x in d.item_ids if x not in inventory]
+        if not (MIN_ITEMS <= len(d.skus) <= MAX_ITEMS):
+            errors.append(f"{label}: has {len(d.skus)} items, needs {MIN_ITEMS}-{MAX_ITEMS}")
+            if not d.skus:
+                continue
+        if len(set(d.skus)) != len(d.skus):
+            errors.append(f"{label}: repeats a SKU")
+        key = frozenset(d.skus)
+        if key in seen:
+            errors.append(f"{label}: same items as bundle {seen[key] + 1}")
+        seen.setdefault(key, i)
+        unknown = [x for x in d.skus if x not in inventory]
         if unknown:
-            errors.append(f"{label}: unknown item ids {unknown}")
+            errors.append(f"{label}: unknown SKUs {unknown}")
             continue
-        out_of_stock = [x for x in d.item_ids if not inventory[x].in_stock]
+        items = [inventory[x] for x in d.skus]
+        out_of_stock = [i.sku for i in items if not i.in_stock]
         if out_of_stock:
-            errors.append(f"{label}: out-of-stock item ids {out_of_stock}")
-        used_banned = [x for x in d.item_ids if x in banned]
+            errors.append(f"{label}: out-of-stock SKUs {out_of_stock}")
+        used_banned = [x for x in d.skus if x in banned]
         if used_banned:
-            errors.append(f"{label}: includes cold items the buyer rejected {used_banned}")
-        total = sum(inventory[x].price_cents for x in d.item_ids)
-        lo, hi = int(total * MIN_PRICE_RATIO), int(total * MAX_PRICE_RATIO)
-        if not (lo <= d.price_cents <= hi):
-            errors.append(
-                f"{label}: price {d.price_cents} outside allowed range {lo}-{hi} "
-                f"(item total {total})"
-            )
+            errors.append(f"{label}: includes SKUs the buyer rejected {used_banned}")
+        total = rules.items_total(items)
+        lo, hi = round(total * MIN_PRICE_RATIO, 2), round(total * MAX_PRICE_RATIO, 2)
+        if not (lo <= d.price <= hi):
+            errors.append(f"{label}: price {d.price} outside allowed range {lo}-{hi} (items total {total})")
+        if brief is None:
+            continue
+        wrong_size = [i.sku for i in items if rules.size_ok(brief, i) is False]
+        if wrong_size:
+            errors.append(f"{label}: SKUs not in the buyer's sizes {wrong_size}")
+        avoided = [i.sku for i in items if rules.avoid_hits(brief, i)]
+        if avoided:
+            errors.append(f"{label}: SKUs in colors the buyer avoids {avoided}")
+        if brief.budget is not None and d.price > brief.budget:
+            errors.append(f"{label}: price {d.price} is over the buyer's budget {brief.budget}")
+        for thing in rules.missing_required(brief, items):
+            errors.append(f"{label}: no {thing} (breaks note 'must include a {thing}')")
 
     if errors:
         raise ValidationFailed(errors)

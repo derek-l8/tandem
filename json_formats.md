@@ -4,21 +4,21 @@ Every message between the buyer agent, the middle man and the seller agent is JS
 The agents never talk directly: every message passes through the middle man, which
 parses it, validates it, stores it and forwards it to the next stage.
 
-**Negotiation: single round, 5 bundles**
+**Negotiation: single round, 5 bundles** (`BRIEF → PROPOSE → JUDGE → ANALYZE → FINAL → DONE`)
 
 ```
-1. inventory          (seller's catalog)
-2. context            buyer  -> seller
-3. bundles (5)        seller -> buyer
-4. check              middle man
-5. ratings            buyer  -> seller
-6. analysis           seller (what works / what doesn't)
-7. final bundle       seller -> buyer
-8. check              middle man
-9. decision           buyer  -> seller
+1. inventory          (seller's catalog)                 db/seed_items.json, models.schemas.Item
+2. context            buyer  -> seller   SSE `brief`      models.schemas.BuyerBrief
+3. bundles (5)        seller -> buyer    SSE `bundles_proposed`
+4. check              middle man         SSE `check`
+5. ratings            buyer  -> seller   SSE `ratings` (+ `heat`)
+6. analysis           seller             SSE `analysis`   models.schemas.RoundAnalysis
+7. final bundle       seller -> buyer    SSE `final_offer`
+8. check              middle man         SSE `check`
+9. decision           buyer  -> seller   (not built yet)
 ```
 
-Stage pattern: `JSON in -> [prompt + JSON] -> Claude -> JSON out -> middle man parses + validates -> next stage`.
+Stage pattern: `JSON in -> [prompt + JSON] -> model (OpenAI) -> JSON out -> middle man parses + validates -> next stage`.
 If validation fails, the middle man re-prompts the same agent once with the errors.
 
 ---
@@ -81,7 +81,7 @@ user's images, only this context.
 
 ```json
 {
-  "style": ["workwear", "minimal"],
+  "style": ["workwear", "minimal", "rugged", "heritage", "earthy tones", "relaxed fit", "utility", "understated"],
   "colors_liked": ["brown", "olive"],
   "colors_avoid": ["neon"],
   "sizes": { "top": "M", "bottom": "32", "shoe": "10" },
@@ -93,13 +93,13 @@ user's images, only this context.
 
 | Field | Type | Notes |
 |---|---|---|
-| `style` | string[] | Style keywords |
+| `style` | string[] | Descriptive style keywords, as many as useful: aesthetic, vibe, fit, era (e.g. `"workwear"`, `"rugged"`, `"earthy tones"`, `"relaxed fit"`). The seller builds bundles to match them and the analyst labels items with them where they fit |
 | `colors_liked` | string[] | Preferred colors |
 | `colors_avoid` | string[] | **Hard rule**: never offered |
 | `sizes` | object | Size per slot (`top`, `bottom`, `shoe`). Only matching SKUs are offered |
 | `budget` | number | Dollars. **Hard rule**: bundle price must be at or under this |
 | `occasion` | string | What it's for |
-| `notes` | string[] | **Strictly followed.** The user's explicit rules, word for word. Any bundle that breaks a note is rejected |
+| `notes` | string[] | **Strictly followed.** The user's explicit rules, word for word. "must include a X" notes are enforced in code (bundle rejected); other notes go to both agents as strict rules, and the buyer rates a bundle that breaks one at 0.1 or lower |
 
 ---
 
@@ -107,8 +107,11 @@ user's images, only this context.
 
 Exactly 5 bundles, each 2-5 items, all different from each other so the ratings are informative.
 
+The `bundles_proposed` event. Ids are UUIDs in practice; `b1`... is shorthand here.
+
 ```json
 {
+  "round": 1,
   "bundles": [
     { "id": "b1", "skus": ["JKT-01-BR-M", "TEE-01-OL-M", "PNT-01-OL-32"],                 "images": ["JKT-01-BR-M.jpg", "TEE-01-OL-M.jpg", "PNT-01-OL-32.jpg"],                     "items_total": 199, "price": 179 },
     { "id": "b2", "skus": ["JKT-03-NV-M", "TEE-02-WH-M", "JNS-01-IN-32", "SNK-01-WH-10"], "images": ["JKT-03-NV-M.jpg", "TEE-02-WH-M.jpg", "JNS-01-IN-32.jpg", "SNK-01-WH-10.jpg"], "items_total": 340, "price": 305 },
@@ -122,10 +125,12 @@ Exactly 5 bundles, each 2-5 items, all different from each other so the ratings 
 | Field | Type | Notes |
 |---|---|---|
 | `id` | string | Bundle id |
+| `name` | string | Bundle name (also sent, omitted above) |
 | `skus` | string[] | Items in the bundle (no repeats) |
 | `images` | string[] | Image file names, same order as `skus` |
 | `items_total` | number | Sum of item prices. **Computed by code** |
 | `price` | number | Bundle price in dollars. Must be 60-105% of `items_total` and at or under `budget` |
+| `pitch` | string | Seller's one-line pitch (also sent, omitted above) |
 
 The buyer agent receives the full item JSONs for each SKU when rating.
 
@@ -136,10 +141,12 @@ The buyer agent receives the full item JSONs for each SKU when rating.
 Runs after every seller output (bundles and final).
 
 ```json
-{ "stage": "bundles", "valid": true, "errors": [] }
+{ "stage": "bundles", "valid": true, "errors": [], "rejected_attempts": [] }
 ```
 
-On failure the seller is re-prompted once with the errors:
+On failure the seller is re-prompted once with the errors. Rejected attempts are listed in the
+`check` event that follows the accepted output; if the retry fails too, the negotiation fails
+with an `error` event. A rejected attempt's errors look like:
 
 ```json
 {
@@ -152,8 +159,9 @@ On failure the seller is re-prompted once with the errors:
 }
 ```
 
-Checks: valid JSON/schema, bundle count, SKUs exist, in stock, sizes match `sizes`, no
-`colors_avoid`, every `notes` rule, no repeated SKU, price range, budget.
+Checks: valid JSON/schema, bundle count, 2-5 items, SKUs exist, in stock, sizes match `sizes`
+(or one size `OS`), no `colors_avoid`, "must include" notes, no repeated SKU, no two identical
+bundles, price range, budget, and (final only) no cold or dropped SKUs.
 
 ---
 
@@ -161,8 +169,9 @@ Checks: valid JSON/schema, bundle count, SKUs exist, in stock, sizes match `size
 
 ```json
 {
+  "round": 1,
   "ratings": [
-    { "id": "b1", "probability": 0.78, "reason": "Brown jacket + olive tee and cargo: exact palette and workwear style" },
+    { "id": "b1", "probability": 0.78, "price_score": 0.8, "fit_score": 0.9, "style_score": 0.85, "reason": "Brown jacket + olive tee and cargo: exact palette and workwear style" },
     { "id": "b2", "probability": 0.41, "reason": "Navy bomber and white sneakers feel sporty, not workwear" },
     { "id": "b3", "probability": 0.15, "reason": "Oxford, wool trousers and loafers are too formal for weekend casual" },
     { "id": "b4", "probability": 0.64, "reason": "All-olive works, but white sneakers break the workwear look" },
@@ -175,7 +184,15 @@ Checks: valid JSON/schema, bundle count, SKUs exist, in stock, sizes match `size
 |---|---|---|
 | `id` | string | Bundle id being rated |
 | `probability` | number 0-1 | Chance the buyer buys this bundle at this price. 0.5 = coin flip. A broken note means 0.1 or lower |
+| `price_score` / `fit_score` / `style_score` | number 0-1 | Sub-scores behind the probability (sent for every bundle, shown once above) |
 | `reason` | string | Names the specific items that help or hurt |
+
+Followed by a `heat` event: every SKU's score = mean probability of the bundles containing it
+(`hot` ≥ 0.6, `cold` ≤ 0.3). Cold SKUs can never be in the final bundle.
+
+```json
+{ "round": 1, "items": [ { "sku": "JKT-01-BR-M", "score": 0.75, "label": "hot", "bundle_count": 2 } ] }
+```
 
 ---
 
@@ -187,22 +204,27 @@ averages. Something is a `confirmed` issue only when both agree.
 
 ```json
 {
+  "round": 1,
   "avg": 0.54,
+  "subscore_avgs": { "price": 0.71, "fit": 0.84, "style": 0.5 },
   "attribute_avgs": {
+    "category": { "boots": 0.72, "pants": 0.71, "sneakers": 0.53, "loafers": 0.15, "trousers": 0.15, "shirt": 0.15 },
     "color":    { "brown": 0.75, "olive": 0.52, "white": 0.53, "navy": 0.41, "pale blue": 0.15, "grey": 0.15, "black": 0.15 },
-    "category": { "boots": 0.72, "pants": 0.71, "sneakers": 0.53, "loafers": 0.15, "trousers": 0.15, "shirt": 0.15 }
+    "material": { "leather": 0.49, "cotton canvas": 0.75 },
+    "size":     { "m": 0.54, "32": 0.54, "10": 0.49 },
+    "style":    { "workwear": 0.72, "minimal": 0.53, "sporty": 0.41, "formal": 0.15 }
   },
   "item_checks": [
-    { "bundle": "b2", "sku": "JKT-03-NV-M",  "verdict": "hurts", "dimension": "style", "note": "Sporty bomber" },
-    { "bundle": "b2", "sku": "SNK-01-WH-10", "verdict": "hurts", "dimension": "style", "note": "Sporty" },
-    { "bundle": "b3", "sku": "SHT-01-BL-M",  "verdict": "hurts", "dimension": "style", "note": "Formal" },
-    { "bundle": "b3", "sku": "TRS-01-GR-32", "verdict": "hurts", "dimension": "style", "note": "Formal" },
-    { "bundle": "b3", "sku": "LOF-01-BK-10", "verdict": "hurts", "dimension": "style", "note": "Formal" }
+    { "bundle_id": "b2", "sku": "JKT-03-NV-M",  "verdict": "hurts", "dimension": "style", "note": "Sporty bomber" },
+    { "bundle_id": "b2", "sku": "SNK-01-WH-10", "verdict": "hurts", "dimension": "style", "note": "Sporty" },
+    { "bundle_id": "b3", "sku": "SHT-01-BL-M",  "verdict": "hurts", "dimension": "style", "note": "Formal" },
+    { "bundle_id": "b3", "sku": "TRS-01-GR-32", "verdict": "hurts", "dimension": "style", "note": "Formal" },
+    { "bundle_id": "b3", "sku": "LOF-01-BK-10", "verdict": "hurts", "dimension": "style", "note": "Formal" }
   ],
   "works": [
-    { "type": "color",    "value": "brown", "avg_prob": 0.75 },
-    { "type": "category", "value": "boots", "avg_prob": 0.72 },
-    { "type": "category", "value": "pants", "avg_prob": 0.71 }
+    { "type": "color",    "value": "brown", "avg_prob": 0.75, "votes": 0, "confirmed": false },
+    { "type": "category", "value": "boots", "avg_prob": 0.72, "votes": 0, "confirmed": false },
+    { "type": "category", "value": "pants", "avg_prob": 0.71, "votes": 0, "confirmed": false }
   ],
   "fails": [
     { "type": "style", "value": "formal", "avg_prob": 0.15, "votes": 3, "confirmed": true },
@@ -216,16 +238,18 @@ averages. Something is a `confirmed` issue only when both agree.
 
 | Field | Type | Source | Notes |
 |---|---|---|---|
+| `round` | int | code | Always 1 for now |
 | `avg` | number | code | Mean probability across the 5 bundles |
-| `attribute_avgs` | object | code | Per attribute value: mean probability of bundles containing it |
-| `item_checks[]` | array | Claude | One entry per item in each bundle rated < 0.5 |
-| `item_checks[].verdict` | `hurts` \| `neutral` \| `helps` | Claude | |
-| `item_checks[].dimension` | `category` \| `style` \| `color` \| `material` \| `size` \| `price` \| `none` | Claude | Why it hurts |
-| `works[]` / `fails[]` | array | Claude + code | Attribute values pulling ratings up / down |
-| `fails[].votes` | int | code | How many item checks blamed this value |
-| `fails[].confirmed` | bool | code | True when the item checks and the averages agree |
-| `keep_skus` / `drop_skus` | string[] | Claude | Used to build the final bundle. `drop_skus` are banned from the final |
-| `main_issue` | string | Claude | The dimension most responsible for low ratings |
+| `subscore_avgs` | object | code | Mean of the buyer's price / fit / style sub-scores |
+| `attribute_avgs` | object | code | Per category/color/material/size value: mean probability of bundles containing it (a value counts once per bundle). `style` uses the seller analyst's style label for each SKU |
+| `item_checks[]` | array | model | One entry per item in each bundle rated < 0.5. Entries for other bundles, unknown SKUs or duplicates are dropped |
+| `item_checks[].verdict` | `hurts` \| `neutral` \| `helps` | model | |
+| `item_checks[].dimension` | `category` \| `style` \| `color` \| `material` \| `size` \| `price` \| `none` | model | Why it hurts |
+| `works[]` / `fails[]` | array | model + code | Attribute values pulling ratings up / down |
+| `fails[].votes` | int | code | How many `hurts` item checks blamed this dimension on an item with this value |
+| `fails[].confirmed` | bool | code | `votes > 0` and `avg_prob` below the round `avg`. For price/fit (no per-item value) it uses the matching sub-score average < 0.5 instead |
+| `keep_skus` / `drop_skus` | string[] | model + code | Only SKUs from this round. Cold SKUs are always added to `drop_skus`. `drop_skus` are banned from the final |
+| `main_issue` | string | model | The dimension most responsible for low ratings |
 
 ---
 
@@ -233,17 +257,21 @@ averages. Something is a `confirmed` issue only when both agree.
 
 Exactly 1 bundle, built from the analysis (best bundle improved with `keep_skus`, no `drop_skus`).
 
+The `final_offer` event. `items` carries the full product JSON of each SKU.
+
 ```json
 {
   "final": {
     "id": "final",
+    "name": "Workwear Core+",
     "skus": ["JKT-01-BR-M", "TEE-01-OL-M", "PNT-01-OL-32", "BOT-01-BR-10"],
     "images": ["JKT-01-BR-M.jpg", "TEE-01-OL-M.jpg", "PNT-01-OL-32.jpg", "BOT-01-BR-10.jpg"],
     "items_total": 359,
     "price": 319,
     "savings": 40,
     "why": "Best bundle (b1, 0.78) + boots from b5 (0.72); no formal or sporty pieces"
-  }
+  },
+  "items": [ { "sku": "JKT-01-BR-M", "name": "Canvas Jacket", "...": "full product JSON" } ]
 }
 ```
 
@@ -258,6 +286,8 @@ The middle man runs the same check (section 4) with `"stage": "final"`.
 ---
 
 ## 8. Decision (buyer -> seller)
+
+Not built yet: buyer side. Planned shape:
 
 ```json
 { "decision": "accept", "probability": 0.88, "reason": "Follows all notes, matches style and colors, $81 under budget" }
@@ -277,4 +307,4 @@ The middle man runs the same check (section 4) with `"stage": "final"`.
 - `notes`, `colors_avoid`, `sizes` and `budget` are hard rules, enforced by the middle man, not just the prompt.
 - Only in-stock SKUs (`stock > 0`) are offered.
 - Every item reference carries its `image` file name.
-- Fields marked "computed by code" are never trusted from Claude's output; the middle man recalculates them.
+- Fields marked "computed by code" are never trusted from the model's output; the middle man recalculates them.

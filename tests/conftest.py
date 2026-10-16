@@ -14,6 +14,7 @@ from models.schemas import (  # noqa: E402
     BundleDraft,
     BuyerBrief,
     ItemCheckDraft,
+    ItemStyle,
     JudgmentDraft,
     SignalDraft,
     Sizes,
@@ -94,12 +95,14 @@ class FakeAgents(Agents):
         self._tick("analyze_round")
         self.seen["check_keys"] = list(check_keys)
         self.seen["attribute_avgs"] = attribute_avgs
+        round_skus = {s for b in keyed.values() for s in b.skus}
         checks = [
             ItemCheckDraft(bundle_key=k, sku=s, verdict="hurts" if STYLES[s] in ("formal", "sporty") else "neutral",
                            dimension="style" if STYLES[s] in ("formal", "sporty") else "none", note=STYLES[s])
             for k in check_keys for s in keyed[k].skus
         ]
         return AnalysisDraft(
+            item_styles=[ItemStyle(sku=s, style=STYLES[s]) for s in round_skus],
             item_checks=checks,
             works=[SignalDraft(type="color", value="brown"), SignalDraft(type="style", value="workwear")],
             fails=[SignalDraft(type="style", value="formal"), SignalDraft(type="style", value="sporty")],

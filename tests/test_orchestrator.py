@@ -52,7 +52,7 @@ def test_full_run_one_round_of_five_then_analysis_and_final(repo, items):
 
     run(go())
     assert agents.seen["check_keys"] == ["B2"]  # only the formal bundle is below 0.5
-    assert agents.seen["attribute_avgs"]["style"]["formal"] == 0.1  # from the items' style keywords
+    assert "style" not in agents.seen["attribute_avgs"]  # style averages need the analyst's labels
     assert agents.calls["rate_bundles"] == 1
 
 

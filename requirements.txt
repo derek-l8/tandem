@@ -1,0 +1,4 @@
+anthropic>=0.125
+fastapi>=0.115
+pydantic>=2.7
+psycopg[binary]>=3.2

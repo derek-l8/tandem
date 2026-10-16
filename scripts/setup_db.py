@@ -8,7 +8,6 @@ import os
 import sys
 
 import psycopg
-from psycopg.types.json import Jsonb
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -25,12 +24,13 @@ def main() -> None:
             items = json.load(f)
         with conn.cursor() as cur:
             cur.executemany(
-                """insert into items (id, name, category, price_cents, tags, in_stock)
-                   values (%s, %s, %s, %s, %s, %s)
-                   on conflict (id) do update set name = excluded.name, category = excluded.category,
-                       price_cents = excluded.price_cents, tags = excluded.tags, in_stock = excluded.in_stock""",
-                [(i["id"], i["name"], i["category"], i["price_cents"], Jsonb(i.get("tags", {})),
-                  i.get("in_stock", True)) for i in items],
+                """insert into items (sku, name, category, color, material, size, price, stock, image)
+                   values (%(sku)s, %(name)s, %(category)s, %(color)s, %(material)s, %(size)s, %(price)s,
+                           %(stock)s, %(image)s)
+                   on conflict (sku) do update set name = excluded.name, category = excluded.category,
+                       color = excluded.color, material = excluded.material, size = excluded.size,
+                       price = excluded.price, stock = excluded.stock, image = excluded.image""",
+                items,
             )
         print(f"seeded {len(items)} items")
 

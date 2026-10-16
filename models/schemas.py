@@ -1,22 +1,24 @@
-"""Shared data shapes for the middle man, the buyer agent and the seller agent."""
+"""Shared data shapes for the middle man, the buyer agent and the seller agent.
+
+Message shapes follow json_formats.md. Prices are dollars everywhere.
+"""
 
 from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
 
 class Step(str, Enum):
-    """Negotiation state machine. Each step is resumable from the DB."""
+    """Negotiation state machine (single round). Each step is resumable from the DB."""
 
     BRIEF = "BRIEF"
-    R1_PROPOSE = "R1_PROPOSE"
-    R1_JUDGE = "R1_JUDGE"
-    R2_REFINE = "R2_REFINE"
-    R2_JUDGE = "R2_JUDGE"
+    PROPOSE = "PROPOSE"
+    JUDGE = "JUDGE"
+    ANALYZE = "ANALYZE"
     FINAL = "FINAL"
     DONE = "DONE"
 
@@ -35,34 +37,50 @@ class HeatLabel(str, Enum):
 
 
 class Item(BaseModel):
-    """One piece of seller inventory, with the AI-generated tags."""
+    """One SKU of seller inventory (json_formats.md section 1). Each size is its own SKU."""
 
-    id: str
+    sku: str
     name: str
     category: str
-    price_cents: int
-    tags: Dict[str, Any] = Field(default_factory=dict)
-    in_stock: bool = True
+    color: str
+    material: str
+    size: str
+    price: float
+    stock: int = Field(ge=0)
+    image: str
+
+    @property
+    def in_stock(self) -> bool:
+        return self.stock > 0
 
 
 # ---- LLM output shapes (kept constraint-free so they work as structured-output schemas;
-# ---- range checks live in middleman/validation.py) ----
+# ---- range and rule checks live in middleman/validation.py and middleman/analysis.py) ----
+
+
+class Sizes(BaseModel):
+    top: Optional[str] = None
+    bottom: Optional[str] = None
+    shoe: Optional[str] = None
 
 
 class BuyerBrief(BaseModel):
-    summary: str
-    style_keywords: List[str]
-    must_haves: List[str]
-    avoid: List[str]
-    sizes: List[str]
-    budget_cents: Optional[int] = None
+    """The buyer context (json_formats.md section 2). `notes` are strict rules."""
+
+    style: List[str]  # as many descriptive style keywords as the buyer's input supports
+    colors_liked: List[str]
+    colors_avoid: List[str]
+    sizes: Sizes
+    budget: Optional[float] = None
+    occasion: Optional[str] = None
+    notes: List[str]
 
 
 class BundleDraft(BaseModel):
     name: str
-    item_ids: List[str]
-    price_cents: int
-    rationale: str
+    skus: List[str]
+    price: float
+    pitch: str
 
 
 class BundleSet(BaseModel):
@@ -93,6 +111,39 @@ class BundleRatingSet(BaseModel):
     ratings: List[BundleRating]
 
 
+Dimension = Literal["category", "style", "color", "material", "size", "price", "fit"]
+
+
+class ItemStyle(BaseModel):
+    sku: str
+    style: str
+
+
+class ItemCheckDraft(BaseModel):
+    bundle_key: str
+    sku: str
+    verdict: Literal["hurts", "neutral", "helps"]
+    dimension: Literal["category", "style", "color", "material", "size", "price", "fit", "none"]
+    note: str
+
+
+class SignalDraft(BaseModel):
+    type: Dimension
+    value: str
+
+
+class AnalysisDraft(BaseModel):
+    """What the seller's analyst returns. The middle man adds the numbers (see RoundAnalysis)."""
+
+    item_styles: List[ItemStyle]
+    item_checks: List[ItemCheckDraft]
+    works: List[SignalDraft]
+    fails: List[SignalDraft]
+    keep_skus: List[str]
+    drop_skus: List[str]
+    main_issue: Literal["category", "style", "color", "material", "size", "price", "fit", "none"]
+
+
 # ---- Persisted records ----
 
 
@@ -109,10 +160,41 @@ class Judgment(JudgmentDraft):
 
 
 class ItemHeat(BaseModel):
-    item_id: str
+    sku: str
     score: float
     label: HeatLabel
     bundle_count: int
+
+
+class ItemCheck(BaseModel):
+    bundle_id: str
+    sku: str
+    verdict: str
+    dimension: str
+    note: str
+
+
+class Signal(BaseModel):
+    type: str
+    value: str
+    avg_prob: Optional[float] = None
+    votes: int = 0
+    confirmed: bool = False
+
+
+class RoundAnalysis(BaseModel):
+    """Seller analysis of a judged round (json_formats.md section 6)."""
+
+    round: int
+    avg: float
+    subscore_avgs: Dict[str, float]
+    attribute_avgs: Dict[str, Dict[str, float]]
+    item_checks: List[ItemCheck]
+    works: List[Signal]
+    fails: List[Signal]
+    keep_skus: List[str]
+    drop_skus: List[str]
+    main_issue: str
 
 
 class Negotiation(BaseModel):
@@ -130,12 +212,3 @@ class Event(BaseModel):
     type: str
     payload: Dict[str, Any]
     ts: datetime
-
-
-class RoundFeedback(BaseModel):
-    """What the middle man hands the seller after a judging round."""
-
-    round: int
-    bundles: List[Bundle]
-    judgments: List[Judgment]
-    heat: List[ItemHeat]

@@ -6,30 +6,37 @@ import json
 from typing import Any, Dict, List, Sequence
 
 from agents.llm import AgentError, structured
+from middleman import rules
 from models.schemas import Bundle, BundleRatingSet, BuyerBrief, Item, JudgmentDraft
 
 BRIEF_SYSTEM = """You are the buyer's personal shopping agent for Brojans, a clothing marketplace.
 Read what the buyer has said (onboarding chat, profile notes, or a free-text request) and
-distill it into a shopping brief that a seller can act on. Capture their style and vibe,
-what they specifically want, what they dislike, their sizes, and their budget in cents if
-they gave one (null otherwise). Do not invent preferences they did not express."""
+distill it into the buyer context a seller can act on: style keywords (as many as their input
+supports, and descriptive: aesthetic, vibe, fit, era, e.g. "workwear", "rugged", "earthy tones",
+"relaxed fit", "heritage"), colors they like,
+colors they avoid, sizes (top, bottom, shoe), budget in dollars (null if not given), and the
+occasion. Put every explicit rule the buyer stated into `notes`, word for word (for example
+"no graphic prints", "must include a jacket"). Do not invent preferences they did not express."""
 
 RATE_SYSTEM = """You are the buyer's personal shopping agent for Brojans. You represent the buyer,
 not the seller. A seller has sent several bundles. Rate every one of them for this buyer.
 
 Each bundle comes with `facts` computed from the inventory. Treat them as ground truth:
-- `size_match` per item: true = the buyer's size is stocked, false = it is not, null = unknown
-  (no sizes on the item, or the buyer gave none).
-- `avoid_hits`: things the buyer said to avoid that appear in the item's name or tags.
+- `size_match` per item: true = the item is in one of the buyer's sizes, false = it is not,
+  null = the buyer gave no sizes.
+- `avoid_hits`: colors the buyer said to avoid that appear in the item's color or name.
+- `missing_required`: things a "must include" note requires that the bundle lacks.
 - `price_vs_budget`: bundle price divided by the buyer's budget (null if no budget).
+All prices are in dollars.
 
 For each bundle give, all from 0.0 to 1.0:
 - price_score: value for money against their budget, including the bundle discount.
 - fit_score: their sizes are available and the cuts suit what they described.
-- style_score: matches their style and must-haves, avoids what they dislike.
+- style_score: matches their style, liked colors and occasion, avoids what they dislike.
 - probability: how likely this buyer is to actually buy this bundle at this price. Be calibrated:
-  0.5 is a genuine coin flip. A bundle with an item they cannot get in their size, or with
-  something they said to avoid, should rarely be above 0.4. A bundle well over budget should
+  0.5 is a genuine coin flip. The buyer's `notes` are strict rules: a bundle that breaks any
+  note (including anything in `missing_required`) gets 0.1 or lower. A bundle with an item not in
+  their size, or in a color they avoid, should rarely be above 0.4. A bundle well over budget should
   be low however good it looks.
 
 Rate each bundle on its own merits; probabilities do not need to sum to 1. Use the other
@@ -40,52 +47,31 @@ Return exactly one rating per bundle, using its `bundle_key`."""
 MAX_RATE_ATTEMPTS = 2  # first try + one re-prompt naming missing or unknown bundle keys
 
 
-def _norm(s: Any) -> str:
-    return str(s).strip().lower()
-
-
-def _flatten_tags(tags: Dict[str, Any]) -> List[str]:
-    out: List[str] = []
-    for v in tags.values():
-        out.extend(_norm(x) for x in (v if isinstance(v, list) else [v]))
-    return out
-
-
 def bundle_facts(brief: BuyerBrief, bundle: Bundle, inventory: Dict[str, Item]) -> Dict[str, Any]:
     """Deterministic facts about a bundle, so the model does not have to count or compare sizes."""
-    buyer_sizes = {_norm(s) for s in brief.sizes}
-    avoid = [_norm(a) for a in brief.avoid if a.strip()]
     items = []
-    for item_id in bundle.item_ids:
-        item = inventory.get(item_id)
+    for sku in bundle.skus:
+        item = inventory.get(sku)
         if item is None:
             continue
-        sizes = item.tags.get("sizes")
-        size_match = None
-        if sizes and buyer_sizes:
-            size_match = bool(buyer_sizes & {_norm(s) for s in sizes})
-        haystack = " ".join([_norm(item.name), *_flatten_tags(item.tags)])
         items.append({
-            "id": item.id,
-            "name": item.name,
-            "category": item.category,
-            "price_cents": item.price_cents,
-            "tags": item.tags,
+            **item.model_dump(exclude={"stock", "image"}),
             "in_stock": item.in_stock,
-            "size_match": size_match,
-            "avoid_hits": [a for a in avoid if a in haystack],
+            "size_match": rules.size_ok(brief, item),
+            "avoid_hits": rules.avoid_hits(brief, item),
         })
-    items_total = sum(i["price_cents"] for i in items)
+    items_total = round(sum(i["price"] for i in items), 2)
     return {
         "items": items,
         "categories": sorted({i["category"] for i in items}),
-        "bundle_price_cents": bundle.price_cents,
-        "items_total_cents": items_total,
-        "discount_pct": round(100 * (1 - bundle.price_cents / items_total), 1) if items_total else 0.0,
-        "budget_cents": brief.budget_cents,
-        "price_vs_budget": round(bundle.price_cents / brief.budget_cents, 2) if brief.budget_cents else None,
-        "items_missing_buyer_size": [i["id"] for i in items if i["size_match"] is False],
-        "items_hitting_avoid_list": [i["id"] for i in items if i["avoid_hits"]],
+        "bundle_price": bundle.price,
+        "items_total": items_total,
+        "discount_pct": round(100 * (1 - bundle.price / items_total), 1) if items_total else 0.0,
+        "budget": brief.budget,
+        "price_vs_budget": round(bundle.price / brief.budget, 2) if brief.budget else None,
+        "items_missing_buyer_size": [i["sku"] for i in items if i["size_match"] is False],
+        "items_hitting_avoid_list": [i["sku"] for i in items if i["avoid_hits"]],
+        "missing_required": rules.missing_required(brief, [inventory[s] for s in bundle.skus if s in inventory]),
     }
 
 
@@ -101,7 +87,7 @@ async def rate_bundles(
         return []
     keyed = {f"B{n}": b for n, b in enumerate(bundles, start=1)}
     payload = [
-        {"bundle_key": key, "name": b.name, "seller_pitch": b.rationale, "facts": bundle_facts(brief, b, inventory)}
+        {"bundle_key": key, "name": b.name, "seller_pitch": b.pitch, "facts": bundle_facts(brief, b, inventory)}
         for key, b in keyed.items()
     ]
     base = (

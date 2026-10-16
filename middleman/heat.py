@@ -17,21 +17,21 @@ def compute_item_heat(
     hot: float = HOT_THRESHOLD,
     cold: float = COLD_THRESHOLD,
 ) -> List[ItemHeat]:
-    """Score each item as the mean buy probability of the bundles that contain it.
+    """Score each SKU as the mean buy probability of the bundles that contain it.
 
-    Items are sorted hottest first. Bundles without a judgment are ignored.
+    SKUs are sorted hottest first. Bundles without a judgment are ignored.
     """
     prob_by_bundle: Dict[str, float] = {j.bundle_id: j.probability for j in judgments}
-    probs_by_item: Dict[str, List[float]] = defaultdict(list)
+    probs_by_sku: Dict[str, List[float]] = defaultdict(list)
     for bundle in bundles:
         p = prob_by_bundle.get(bundle.id)
         if p is None:
             continue
-        for item_id in set(bundle.item_ids):
-            probs_by_item[item_id].append(p)
+        for sku in set(bundle.skus):
+            probs_by_sku[sku].append(p)
 
     heat = []
-    for item_id, probs in probs_by_item.items():
+    for sku, probs in probs_by_sku.items():
         score = sum(probs) / len(probs)
         if score >= hot:
             label = HeatLabel.HOT
@@ -39,6 +39,6 @@ def compute_item_heat(
             label = HeatLabel.COLD
         else:
             label = HeatLabel.NEUTRAL
-        heat.append(ItemHeat(item_id=item_id, score=round(score, 4), label=label, bundle_count=len(probs)))
-    heat.sort(key=lambda h: (-h.score, h.item_id))
+        heat.append(ItemHeat(sku=sku, score=round(score, 4), label=label, bundle_count=len(probs)))
+    heat.sort(key=lambda h: (-h.score, h.sku))
     return heat

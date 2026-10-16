@@ -8,33 +8,58 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from db.repo import MemoryRepo, _MemoryStore, load_seed_items  # noqa: E402
 from middleman.orchestrator import Agents  # noqa: E402
-from models.schemas import Bundle, BundleDraft, BuyerBrief, HeatLabel, Item, JudgmentDraft  # noqa: E402
-
-HOT_ITEM = "itm_001"   # buyer loves this
-COLD_ITEM = "itm_002"  # buyer hates this
-
-BRIEF = BuyerBrief(
-    summary="Streetwear, minimal, hates preppy",
-    style_keywords=["streetwear", "minimal"],
-    must_haves=["tee"],
-    avoid=["preppy"],
-    sizes=["M", "32", "10"],
-    budget_cents=40000,
+from models.schemas import (  # noqa: E402
+    AnalysisDraft,
+    Bundle,
+    BundleDraft,
+    BuyerBrief,
+    ItemCheckDraft,
+    JudgmentDraft,
+    SignalDraft,
+    Sizes,
 )
 
+HOT_ITEM = "JKT-01-BR-M"   # buyer loves this
+COLD_ITEM = "SHT-01-BL-M"  # buyer hates this
 
-def draft(name: str, ids: List[str], inventory: Dict[str, Item]) -> BundleDraft:
-    total = sum(inventory[i].price_cents for i in ids)
-    return BundleDraft(name=name, item_ids=ids, price_cents=int(total * 0.9), rationale=f"pitch for {name}")
+BRIEF = BuyerBrief(
+    style=["workwear", "minimal"],
+    colors_liked=["brown", "olive"],
+    colors_avoid=["neon"],
+    sizes=Sizes(top="M", bottom="32", shoe="10"),
+    budget=400,
+    occasion="weekend casual",
+    notes=["no graphic prints", "must include a jacket"],
+)
+
+ROUND_BUNDLES = {
+    "workwear": [HOT_ITEM, "TEE-01-OL-M", "PNT-01-OL-32"],
+    "formal": ["JKT-03-NV-M", COLD_ITEM, "TRS-01-GR-32"],
+    "minimal": ["JKT-02-OL-M", "TEE-02-WH-M", "JNS-01-IN-32"],
+    "lounge": ["JKT-02-OL-M", "HOD-02-HG-M", "JOG-01-CH-32"],
+    "rugged": [HOT_ITEM, "JNS-01-IN-32", "BOT-01-BR-10"],
+}
+FINAL_SKUS = [HOT_ITEM, "TEE-01-OL-M", "PNT-01-OL-32", "BOT-01-BR-10"]
+
+STYLES = {HOT_ITEM: "workwear", "TEE-01-OL-M": "workwear", "PNT-01-OL-32": "workwear",
+          "BOT-01-BR-10": "workwear", "JKT-03-NV-M": "sporty", COLD_ITEM: "formal",
+          "TRS-01-GR-32": "formal", "JKT-02-OL-M": "workwear", "TEE-02-WH-M": "minimal",
+          "JNS-01-IN-32": "minimal", "HOD-02-HG-M": "loungewear", "JOG-01-CH-32": "loungewear"}
+
+
+def draft(name: str, skus: List[str], inventory: Dict, ratio: float = 0.9) -> BundleDraft:
+    total = sum(inventory[s].price for s in skus)
+    return BundleDraft(name=name, skus=skus, price=round(total * ratio, 2), pitch=f"pitch for {name}")
 
 
 class FakeAgents(Agents):
     """Deterministic agents. `fail_on` makes a method raise once; `bad_first` returns invalid output once."""
 
-    def __init__(self, inventory: List[Item], fail_on: Optional[str] = None, bad_first: Optional[str] = None):
-        self.inv = {i.id: i for i in inventory}
+    def __init__(self, inventory, fail_on: Optional[str] = None, bad_first: Optional[str] = None):
+        self.inv = {i.sku: i for i in inventory}
         self.fail_on, self.bad_first = fail_on, bad_first
         self.calls: Dict[str, int] = {}
+        self.seen: Dict[str, object] = {}
 
     def _tick(self, name: str) -> int:
         self.calls[name] = self.calls.get(name, 0) + 1
@@ -51,41 +76,49 @@ class FakeAgents(Agents):
         self._tick("rate_bundles")
         out = []
         for bundle in bundles:
-            p = 0.5 + (0.4 if HOT_ITEM in bundle.item_ids else 0) - (0.4 if COLD_ITEM in bundle.item_ids else 0)
+            p = 0.5 + (0.4 if HOT_ITEM in bundle.skus else 0) - (0.4 if COLD_ITEM in bundle.skus else 0)
             out.append(JudgmentDraft(probability=p, reason=f"judged {bundle.name}",
-                                     price_score=0.5, fit_score=0.5, style_score=p))
+                                     price_score=0.6, fit_score=0.7, style_score=p))
         return out
 
     async def propose_bundles(self, brief, inventory, count, errors=None):
         n = self._tick("propose_bundles")
+        self.seen.setdefault("propose_errors", []).append(errors)
         if self.bad_first == "propose_bundles" and n == 1:
-            return [draft("bad", ["itm_999", "itm_001"], {**self.inv, "itm_999": self.inv["itm_001"]})]
-        return [
-            draft("street", [HOT_ITEM, "itm_008", "itm_013"], self.inv),
-            draft("prep", [COLD_ITEM, "itm_009", "itm_014"], self.inv),
-            draft("cozy", ["itm_003", "itm_006", "itm_016"], self.inv),
-        ][:count]
+            # no jacket in the first bundle, and the rest are fine
+            bad = [draft("no-jacket", ["TEE-01-OL-M", "PNT-01-OL-32"], self.inv)]
+            return bad + [draft(k, v, self.inv) for k, v in list(ROUND_BUNDLES.items())[1:]]
+        return [draft(k, v, self.inv) for k, v in ROUND_BUNDLES.items()][:count]
 
-    async def refine_bundles(self, brief, inventory, feedback, count, errors=None):
-        n = self._tick("refine_bundles")
-        cold = {h.item_id for fb in feedback for h in fb.heat if h.label == HeatLabel.COLD}
-        if self.bad_first == "refine_bundles" and n == 1:
-            # ignores the feedback and keeps a cold item
-            return [draft(f"r{k}", [COLD_ITEM, "itm_013"], self.inv) for k in range(count)]
-        assert COLD_ITEM in cold
-        return [
-            draft("street+", [HOT_ITEM, "itm_008", "itm_019"], self.inv),
-            draft("street-lite", [HOT_ITEM, "itm_016"], self.inv),
-            draft("cozy+", ["itm_004", "itm_006", "itm_013"], self.inv),
-        ][:count]
+    async def analyze_round(self, brief, keyed, judgments, inventory, heat, attribute_avgs, check_keys):
+        self._tick("analyze_round")
+        self.seen["check_keys"] = list(check_keys)
+        self.seen["attribute_avgs"] = attribute_avgs
+        checks = [
+            ItemCheckDraft(bundle_key=k, sku=s, verdict="hurts" if STYLES[s] in ("formal", "sporty") else "neutral",
+                           dimension="style" if STYLES[s] in ("formal", "sporty") else "none", note=STYLES[s])
+            for k in check_keys for s in keyed[k].skus
+        ]
+        return AnalysisDraft(
+            item_checks=checks,
+            works=[SignalDraft(type="color", value="brown"), SignalDraft(type="style", value="workwear")],
+            fails=[SignalDraft(type="style", value="formal"), SignalDraft(type="style", value="sporty")],
+            keep_skus=[HOT_ITEM, "TEE-01-OL-M", "PNT-01-OL-32", "BOT-01-BR-10"],
+            drop_skus=[COLD_ITEM, "TRS-01-GR-32"],
+            main_issue="style",
+        )
 
-    async def final_bundle(self, brief, inventory, feedback, errors=None):
-        self._tick("final_bundle")
-        return [draft("final", [HOT_ITEM, "itm_008", "itm_013", "itm_019"], self.inv)]
+    async def final_bundle(self, brief, inventory, keyed, judgments, analysis, errors=None):
+        n = self._tick("final_bundle")
+        self.seen.setdefault("final_errors", []).append(errors)
+        if self.bad_first == "final_bundle" and n == 1:
+            # ignores the analysis and keeps a dropped item
+            return [draft("bad-final", [HOT_ITEM, COLD_ITEM], self.inv)]
+        return [draft("final", FINAL_SKUS, self.inv)]
 
 
 @pytest.fixture
-def items() -> List[Item]:
+def items():
     return load_seed_items()
 
 

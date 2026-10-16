@@ -8,34 +8,38 @@ from models.schemas import Bundle, BundleRating, BundleRatingSet
 from tests.conftest import BRIEF
 
 
-def _bundle(id_, item_ids, price_cents):
-    return Bundle(id=id_, negotiation_id="n", round=1, name=id_, item_ids=item_ids,
-                  price_cents=price_cents, rationale="trust me")
+def _bundle(id_, skus, price):
+    return Bundle(id=id_, negotiation_id="n", round=1, name=id_, skus=skus, price=price, pitch="trust me")
 
 
 def _rating(key, p):
     return BundleRating(bundle_key=key, price_score=0.5, fit_score=0.5, style_score=0.5, probability=p, reason=key)
 
 
-def test_bundle_facts_flags_sizes_avoid_hits_and_price(items):
-    inv = {i.id: i for i in items}
-    # itm_002 is the preppy oxford (avoid list), itm_012 only comes in 38/40/42, itm_016 has no sizes
-    facts = buyer.bundle_facts(BRIEF, _bundle("b", ["itm_001", "itm_002", "itm_012", "itm_016"], 20000), inv)
-    by_id = {i["id"]: i for i in facts["items"]}
-    assert by_id["itm_001"]["size_match"] is True
-    assert by_id["itm_012"]["size_match"] is False
-    assert by_id["itm_016"]["size_match"] is None
-    assert by_id["itm_002"]["avoid_hits"] == ["preppy"]
-    assert facts["items_missing_buyer_size"] == ["itm_012"]
-    assert facts["items_hitting_avoid_list"] == ["itm_002"]
-    total = sum(inv[i].price_cents for i in ["itm_001", "itm_002", "itm_012", "itm_016"])
-    assert facts["items_total_cents"] == total
-    assert facts["price_vs_budget"] == round(20000 / BRIEF.budget_cents, 2)
+def test_bundle_facts_flags_sizes_avoid_hits_required_and_price(items):
+    inv = {i.sku: i for i in items}
+    # TEE-01-OL-M fits; JKT-04-NY-M is neon (avoid list); PNT-01-OL-34 is not the buyer's 32; BNE is one size
+    skus = ["TEE-01-OL-M", "JKT-04-NY-M", "PNT-01-OL-34", "BNE-01-RU-OS"]
+    facts = buyer.bundle_facts(BRIEF, _bundle("b", skus, 200), inv)
+    by_sku = {i["sku"]: i for i in facts["items"]}
+    assert by_sku["TEE-01-OL-M"]["size_match"] is True
+    assert by_sku["PNT-01-OL-34"]["size_match"] is False
+    assert by_sku["BNE-01-RU-OS"]["size_match"] is True
+    assert by_sku["JKT-04-NY-M"]["avoid_hits"] == ["neon"]
+    assert "image" not in by_sku["TEE-01-OL-M"] and "stock" not in by_sku["TEE-01-OL-M"]
+    assert facts["items_missing_buyer_size"] == ["PNT-01-OL-34"]
+    assert facts["items_hitting_avoid_list"] == ["JKT-04-NY-M"]
+    assert facts["missing_required"] == []  # the windbreaker is a jacket
+    assert facts["items_total"] == sum(inv[s].price for s in skus)
+    assert facts["price_vs_budget"] == round(200 / BRIEF.budget, 2)
+
+    no_jacket = buyer.bundle_facts(BRIEF, _bundle("c", ["TEE-01-OL-M", "PNT-01-OL-32"], 100), inv)
+    assert no_jacket["missing_required"] == ["jacket"]
 
 
 def test_rate_bundles_maps_keys_back_in_order_and_clamps(items, monkeypatch):
-    inv = {i.id: i for i in items}
-    bundles = [_bundle("x", ["itm_001"], 4000), _bundle("y", ["itm_002"], 6000)]
+    inv = {i.sku: i for i in items}
+    bundles = [_bundle("x", ["JKT-01-BR-M"], 80), _bundle("y", ["SHT-01-BL-M"], 60)]
 
     async def fake_structured(system, user, model, effort=None):
         assert '"bundle_key": "B1"' in user and '"bundle_key": "B2"' in user
@@ -50,8 +54,8 @@ def test_rate_bundles_maps_keys_back_in_order_and_clamps(items, monkeypatch):
 
 
 def test_rate_bundles_reprompts_on_missing_ratings_then_gives_up(items, monkeypatch):
-    inv = {i.id: i for i in items}
-    bundles = [_bundle("x", ["itm_001"], 4000), _bundle("y", ["itm_002"], 6000)]
+    inv = {i.sku: i for i in items}
+    bundles = [_bundle("x", ["JKT-01-BR-M"], 80), _bundle("y", ["SHT-01-BL-M"], 60)]
     prompts = []
 
     async def fake_structured(system, user, model, effort=None):

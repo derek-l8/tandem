@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field  # noqa: E402
 
 from db.repo import make_repo  # noqa: E402
 from middleman.events import stream_negotiation  # noqa: E402
+from middleman.orchestrator import FINAL_ROUND  # noqa: E402
 from models.schemas import BuyerBrief, Status  # noqa: E402
 
 app = FastAPI(title="Brojans middle man")
@@ -25,7 +26,7 @@ app.state.agents = None  # None = real OpenAI-backed agents; tests inject fakes
 
 class CreateNegotiation(BaseModel):
     buyer_input: str = Field(min_length=1, max_length=20000)
-    # Optional pre-built brief from the buyer side; when given, the BRIEF step is skipped.
+    # Optional pre-built buyer context (json_formats.md section 2); when given, the BRIEF step is skipped.
     brief: Optional[BuyerBrief] = None
 
 
@@ -62,7 +63,8 @@ async def get_negotiation(negotiation_id: str, request: Request):
         bundles = await repo.list_bundles(negotiation_id)
         judgments = {j.bundle_id: j for j in await repo.list_judgments(negotiation_id)}
         rounds = []
-        for r in sorted({b.round for b in bundles}):
+        for r in sorted({b.round for b in bundles if b.round != FINAL_ROUND}):
+            analysis = await repo.get_analysis(negotiation_id, r)
             rounds.append({
                 "round": r,
                 "bundles": [
@@ -70,10 +72,11 @@ async def get_negotiation(negotiation_id: str, request: Request):
                     for b in bundles if b.round == r
                 ],
                 "heat": [h.model_dump(mode="json") for h in await repo.list_item_heat(negotiation_id, r)],
+                "analysis": analysis.model_dump(mode="json") if analysis else None,
             })
     finally:
         await repo.close()
-    final = next((b for b in bundles if b.round == 3), None)
+    final = next((b for b in bundles if b.round == FINAL_ROUND), None)
     return {
         "negotiation": neg.model_dump(mode="json", exclude={"buyer_input"}),
         "rounds": rounds,

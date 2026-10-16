@@ -72,6 +72,25 @@ class BundleSet(BaseModel):
 class JudgmentDraft(BaseModel):
     probability: float
     reason: str
+    # Sub-scores (0-1) behind the probability. Optional so older rows still load.
+    price_score: Optional[float] = None
+    fit_score: Optional[float] = None
+    style_score: Optional[float] = None
+
+
+class BundleRating(BaseModel):
+    """The buyer agent's rating of one bundle, keyed by the label it was shown (B1, B2, ...)."""
+
+    bundle_key: str
+    price_score: float
+    fit_score: float
+    style_score: float
+    probability: float
+    reason: str
+
+
+class BundleRatingSet(BaseModel):
+    ratings: List[BundleRating]
 
 
 # ---- Persisted records ----

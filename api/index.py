@@ -20,7 +20,7 @@ from models.schemas import BuyerBrief, Status  # noqa: E402
 
 app = FastAPI(title="Brojans middle man")
 app.state.make_repo = make_repo
-app.state.agents = None  # None = real Claude-backed agents; tests inject fakes
+app.state.agents = None  # None = real OpenAI-backed agents; tests inject fakes
 
 
 class CreateNegotiation(BaseModel):

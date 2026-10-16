@@ -40,7 +40,7 @@ def test_full_run_produces_three_rounds_and_final_offer(repo, items):
         assert final_offer["savings_cents"] == final_offer["items_total_cents"] - final.price_cents
 
     run(go())
-    assert agents.calls["judge_bundle"] == 6
+    assert agents.calls["rate_bundles"] == 2  # one call per judging round
 
 
 def test_invalid_seller_output_is_reprompted_with_errors(repo, items):

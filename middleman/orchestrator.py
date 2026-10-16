@@ -9,7 +9,6 @@ finishes with one atomic `repo.commit_step`. A run can therefore stop anywhere
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from typing import Awaitable, Callable, Dict, List, Optional, Sequence, Set
@@ -46,8 +45,10 @@ class Agents:
     async def build_brief(self, buyer_input: str) -> BuyerBrief:
         return await buyer.build_brief(buyer_input)
 
-    async def judge_bundle(self, brief: BuyerBrief, bundle: Bundle, inventory: Dict[str, Item]) -> JudgmentDraft:
-        return await buyer.judge_bundle(brief, bundle, inventory)
+    async def rate_bundles(
+        self, brief: BuyerBrief, bundles: Sequence[Bundle], inventory: Dict[str, Item]
+    ) -> List[JudgmentDraft]:
+        return await buyer.rate_bundles(brief, bundles, inventory)
 
     async def propose_bundles(self, brief, inventory, count, errors=None) -> List[BundleDraft]:
         return await seller.propose_bundles(brief, inventory, count, errors)
@@ -134,10 +135,12 @@ class _Run:
     async def step_judge(self, neg: Negotiation, round_: int, from_step: Step, to_step: Step) -> None:
         bundles = await self.repo.list_bundles(self.id, round_)
         inventory = await self.inventory_by_id()
-        drafts = await asyncio.gather(*(self.agents.judge_bundle(neg.brief, b, inventory) for b in bundles))
+        drafts = await self.agents.rate_bundles(neg.brief, bundles, inventory)
+        if len(drafts) != len(bundles):
+            raise ValueError(f"buyer agent returned {len(drafts)} ratings for {len(bundles)} bundles")
         judgments = [
             Judgment(bundle_id=b.id, negotiation_id=self.id, round=round_,
-                     probability=clamp_probability(d.probability), reason=d.reason)
+                     **{**d.model_dump(), "probability": clamp_probability(d.probability)})
             for b, d in zip(bundles, drafts)
         ]
         heat = compute_item_heat(bundles, judgments)

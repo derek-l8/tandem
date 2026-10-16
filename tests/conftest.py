@@ -47,10 +47,14 @@ class FakeAgents(Agents):
         self._tick("build_brief")
         return BRIEF
 
-    async def judge_bundle(self, brief, bundle: Bundle, inventory):
-        self._tick("judge_bundle")
-        p = 0.5 + (0.4 if HOT_ITEM in bundle.item_ids else 0) - (0.4 if COLD_ITEM in bundle.item_ids else 0)
-        return JudgmentDraft(probability=p, reason=f"judged {bundle.name}")
+    async def rate_bundles(self, brief, bundles: List[Bundle], inventory):
+        self._tick("rate_bundles")
+        out = []
+        for bundle in bundles:
+            p = 0.5 + (0.4 if HOT_ITEM in bundle.item_ids else 0) - (0.4 if COLD_ITEM in bundle.item_ids else 0)
+            out.append(JudgmentDraft(probability=p, reason=f"judged {bundle.name}",
+                                     price_score=0.5, fit_score=0.5, style_score=p))
+        return out
 
     async def propose_bundles(self, brief, inventory, count, errors=None):
         n = self._tick("propose_bundles")

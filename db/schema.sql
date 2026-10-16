@@ -41,6 +41,9 @@ create table if not exists judgments (
     probability     real not null check (probability between 0 and 1),
     reason          text not null
 );
+alter table judgments add column if not exists price_score real;
+alter table judgments add column if not exists fit_score real;
+alter table judgments add column if not exists style_score real;
 
 create table if not exists item_heat (
     negotiation_id  uuid not null references negotiations(id) on delete cascade,

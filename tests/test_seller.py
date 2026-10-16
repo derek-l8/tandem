@@ -10,10 +10,11 @@ from models.schemas import (
     Bundle,
     BundleSet,
     ItemCheckDraft,
+    ItemStyle,
     Judgment,
     SignalDraft,
 )
-from tests.conftest import BRIEF, COLD_ITEM, HOT_ITEM, ROUND_BUNDLES, FakeAgents, draft
+from tests.conftest import BRIEF, COLD_ITEM, HOT_ITEM, ROUND_BUNDLES, STYLES, FakeAgents, draft
 
 
 def _inventory_skus(prompt: str):
@@ -66,15 +67,15 @@ def test_attribute_averages_count_each_value_once_per_bundle(items):
     assert avgs["color"]["brown"] == 0.9
     # jacket is in every bundle: (0.9 + 0.1 + 0.5 + 0.5 + 0.9) / 5
     assert avgs["category"]["jacket"] == 0.58
-    # style keywords: each keyword counts once per bundle; workwear is in workwear, minimal, lounge, rugged
-    assert avgs["style"]["workwear"] == 0.7
-    assert avgs["style"]["formal"] == 0.1
+    assert "style" not in avgs
     assert analysis.low_bundle_keys(keyed, judgments) == ["B2"]
 
 
 def test_finalize_cross_checks_items_against_collective_and_drops_made_up_data(items):
     inv, keyed, judgments, heat = _round(items)
+    round_skus = {s for b in keyed.values() for s in b.skus}
     draft_ = AnalysisDraft(
+        item_styles=[ItemStyle(sku=s, style=STYLES[s].upper()) for s in round_skus] + [ItemStyle(sku="X", style="y")],
         item_checks=[
             ItemCheckDraft(bundle_key="B2", sku=COLD_ITEM, verdict="hurts", dimension="style", note="formal"),
             ItemCheckDraft(bundle_key="B2", sku="TRS-01-GR-32", verdict="hurts", dimension="style", note="formal"),

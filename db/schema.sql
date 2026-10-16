@@ -58,6 +58,7 @@ create table if not exists judgments (
 alter table judgments add column if not exists price_score real;
 alter table judgments add column if not exists fit_score real;
 alter table judgments add column if not exists style_score real;
+alter table judgments add column if not exists decision text;      -- accept | reject, final offer only
 
 create table if not exists item_heat (
     negotiation_id  uuid not null references negotiations(id) on delete cascade,

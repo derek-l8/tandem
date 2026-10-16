@@ -34,7 +34,7 @@ def test_create_stream_snapshot_and_replay(client):
         assert s.headers["content-type"].startswith("text/event-stream")
         events = parse_sse(s.read().decode())
     types = [e["type"] for e in events]
-    assert types[0] == "brief" and types[-2:] == ["final_offer", "done"]
+    assert types[0] == "brief" and types[-3:] == ["final_offer", "decision", "done"]
 
     snap = client.get(f"/api/negotiations/{nid}").json()
     assert snap["negotiation"]["status"] == "done"
@@ -43,12 +43,13 @@ def test_create_stream_snapshot_and_replay(client):
     assert all(b["judgment"] for b in snap["rounds"][0]["bundles"])
     assert snap["rounds"][0]["analysis"]["main_issue"] == "style"
     assert snap["final_offer"]["skus"]
+    assert snap["decision"]["decision"] == "accept"
 
     # Reconnect with Last-Event-ID: only newer events, then the stream ends (already done)
     with client.stream("GET", f"/api/negotiations/{nid}/stream",
-                       headers={"Last-Event-ID": str(events[-3]["id"])}) as s:
+                       headers={"Last-Event-ID": str(events[-4]["id"])}) as s:
         replay = parse_sse(s.read().decode())
-    assert [e["type"] for e in replay] == ["final_offer", "done"]
+    assert [e["type"] for e in replay] == ["final_offer", "decision", "done"]
 
 
 def test_failed_run_can_be_retried(client, items):

@@ -82,6 +82,10 @@ class FakeAgents(Agents):
                                      price_score=0.6, fit_score=0.7, style_score=p))
         return out
 
+    async def decide(self, brief, bundle: Bundle, inventory):
+        self._tick("decide")
+        return JudgmentDraft(decision="accept", probability=0.88, reason=f"accept {bundle.name}")
+
     async def propose_bundles(self, brief, inventory, count, errors=None):
         n = self._tick("propose_bundles")
         self.seen.setdefault("propose_errors", []).append(errors)

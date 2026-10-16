@@ -321,7 +321,8 @@ class PostgresRepo(Repo):
         )).fetchall()
         return [Judgment(bundle_id=str(r["bundle_id"]), negotiation_id=str(r["negotiation_id"]), round=r["round"],
                          probability=r["probability"], reason=r["reason"], price_score=r["price_score"],
-                         fit_score=r["fit_score"], style_score=r["style_score"]) for r in rows]
+                         fit_score=r["fit_score"], style_score=r["style_score"],
+                         decision=r["decision"]) for r in rows]
 
     async def list_item_heat(self, negotiation_id, round):
         conn = await self._c()
@@ -373,10 +374,10 @@ class PostgresRepo(Repo):
                 if judgments:
                     await c.executemany(
                         """insert into judgments (bundle_id, negotiation_id, round, probability, reason,
-                                                  price_score, fit_score, style_score)
-                           values (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                                                  price_score, fit_score, style_score, decision)
+                           values (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                         [(j.bundle_id, j.negotiation_id, j.round, j.probability, j.reason,
-                          j.price_score, j.fit_score, j.style_score) for j in judgments],
+                          j.price_score, j.fit_score, j.style_score, j.decision) for j in judgments],
                     )
                 if heat_round is not None and heat:
                     await c.executemany(

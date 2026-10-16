@@ -4,7 +4,7 @@ Every message between the buyer agent, the middle man and the seller agent is JS
 The agents never talk directly: every message passes through the middle man, which
 parses it, validates it, stores it and forwards it to the next stage.
 
-**Negotiation: single round, 5 bundles** (`BRIEF → PROPOSE → JUDGE → ANALYZE → FINAL → DONE`)
+**Negotiation: single round, 5 bundles** (`BRIEF → PROPOSE → JUDGE → ANALYZE → FINAL → DECIDE → DONE`)
 
 ```
 1. inventory          (seller's catalog)                 db/seed_items.json, models.schemas.Item
@@ -15,7 +15,7 @@ parses it, validates it, stores it and forwards it to the next stage.
 6. analysis           seller             SSE `analysis`   models.schemas.RoundAnalysis
 7. final bundle       seller -> buyer    SSE `final_offer`
 8. check              middle man         SSE `check`
-9. decision           buyer  -> seller   (not built yet)
+9. decision           buyer  -> seller   SSE `decision`
 ```
 
 Stage pattern: `JSON in -> [prompt + JSON] -> model (OpenAI) -> JSON out -> middle man parses + validates -> next stage`.
@@ -287,10 +287,10 @@ The middle man runs the same check (section 4) with `"stage": "final"`.
 
 ## 8. Decision (buyer -> seller)
 
-Not built yet: buyer side. Planned shape:
+The `decision` event (`id` is the final bundle's id; ids are UUIDs in practice):
 
 ```json
-{ "decision": "accept", "probability": 0.88, "reason": "Follows all notes, matches style and colors, $81 under budget" }
+{ "id": "final", "decision": "accept", "probability": 0.88, "reason": "Follows all notes, matches style and colors, $81 under budget" }
 ```
 
 | Field | Type | Notes |

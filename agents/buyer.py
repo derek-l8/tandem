@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Sequence
 
 from agents.llm import AgentError, structured
 from middleman import rules
-from models.schemas import Bundle, BundleRatingSet, BuyerBrief, Item, JudgmentDraft
+from models.schemas import Bundle, BundleRatingSet, BuyerBrief, DecisionDraft, Item, JudgmentDraft
 
 BRIEF_SYSTEM = """You are the buyer's personal shopping agent for Brojans, a clothing marketplace.
 Read what the buyer has said (onboarding chat, profile notes, or a free-text request) and
@@ -43,6 +43,17 @@ Rate each bundle on its own merits; probabilities do not need to sum to 1. Use t
 bundles only to keep your scale consistent. Ignore the seller's pitch where it conflicts with
 the facts. In `reason`, name the specific items that help or hurt, in one or two sentences.
 Return exactly one rating per bundle, using its `bundle_key`."""
+
+DECIDE_SYSTEM = """You are the buyer's personal shopping agent for Brojans. You represent the buyer,
+not the seller. The seller has made its final offer: one bundle at one price. Decide whether to
+accept it on the buyer's behalf.
+
+The bundle comes with `facts` computed from the inventory; treat them as ground truth (same
+meaning as when you rated bundles). Accept only if it follows every one of the buyer's `notes`,
+has nothing in `missing_required`, `items_missing_buyer_size` or `items_hitting_avoid_list`, is
+within budget, and is a strong fit for their style and occasion at this price. Otherwise reject.
+`probability` is how likely the buyer is to buy it at this price (0.0 to 1.0). In `reason`, say
+why in one or two sentences, naming specific items."""
 
 MAX_RATE_ATTEMPTS = 2  # first try + one re-prompt naming missing or unknown bundle keys
 
@@ -125,3 +136,14 @@ async def rate_bundles(
 
 async def build_brief(buyer_input: str) -> BuyerBrief:
     return await structured(BRIEF_SYSTEM, f"<buyer_input>\n{buyer_input}\n</buyer_input>", BuyerBrief)
+
+
+async def decide(brief: BuyerBrief, bundle: Bundle, inventory: Dict[str, Item]) -> JudgmentDraft:
+    """Accept or reject the seller's final offer."""
+    payload = {"name": bundle.name, "seller_pitch": bundle.pitch, "facts": bundle_facts(brief, bundle, inventory)}
+    user = (
+        f"<buyer_brief>\n{brief.model_dump_json(indent=2)}\n</buyer_brief>\n\n"
+        f"<final_offer>\n{json.dumps(payload, indent=1)}\n</final_offer>"
+    )
+    d = await structured(DECIDE_SYSTEM, user, DecisionDraft, effort="low")
+    return JudgmentDraft(decision=d.decision, probability=_clamp(d.probability), reason=d.reason)

@@ -77,10 +77,12 @@ async def get_negotiation(negotiation_id: str, request: Request):
     finally:
         await repo.close()
     final = next((b for b in bundles if b.round == FINAL_ROUND), None)
+    decision = judgments.get(final.id) if final else None
     return {
         "negotiation": neg.model_dump(mode="json", exclude={"buyer_input"}),
         "rounds": rounds,
         "final_offer": final.model_dump() if final else None,
+        "decision": decision.model_dump(include={"decision", "probability", "reason"}) if decision else None,
     }
 
 

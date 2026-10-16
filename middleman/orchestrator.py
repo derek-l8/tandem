@@ -1,6 +1,6 @@
 """The middle man: drives buyer agent <-> seller agent through one round of 5 bundles.
 
-BRIEF -> PROPOSE -> JUDGE -> ANALYZE -> FINAL -> DONE
+BRIEF -> PROPOSE -> JUDGE -> ANALYZE -> FINAL -> DECIDE -> DONE
 
 Each step reads its inputs from the repo, calls the agents, validates the result, and
 finishes with one atomic `repo.commit_step`. A run can therefore stop anywhere
@@ -54,6 +54,9 @@ class Agents:
         self, brief: BuyerBrief, bundles: Sequence[Bundle], inventory: Dict[str, Item]
     ) -> List[JudgmentDraft]:
         return await buyer.rate_bundles(brief, bundles, inventory)
+
+    async def decide(self, brief: BuyerBrief, bundle: Bundle, inventory: Dict[str, Item]) -> JudgmentDraft:
+        return await buyer.decide(brief, bundle, inventory)
 
     async def propose_bundles(self, brief, inventory, count, errors=None) -> List[BundleDraft]:
         return await seller.propose_bundles(brief, inventory, count, errors)
@@ -207,8 +210,20 @@ class _Run:
         view["savings"] = round(view["items_total"] - bundle.price, 2)
         view["why"] = view.pop("pitch")
         offer = {"final": view, "items": [inventory[s].model_dump() for s in bundle.skus]}
-        await self.commit(Step.FINAL, Step.DONE, status=Status.DONE, bundles=[bundle],
-                          events=[("check", check), ("final_offer", offer), ("done", {})])
+        await self.commit(Step.FINAL, Step.DECIDE, bundles=[bundle],
+                          events=[("check", check), ("final_offer", offer)])
+
+    async def step_decide(self, neg: Negotiation) -> None:
+        [bundle] = await self.repo.list_bundles(self.id, FINAL_ROUND)
+        d = await self.agents.decide(neg.brief, bundle, await self.inventory_by_sku())
+        if d.decision not in ("accept", "reject"):
+            raise ValueError(f"buyer agent returned decision {d.decision!r}")
+        judgment = Judgment(bundle_id=bundle.id, negotiation_id=self.id, round=FINAL_ROUND,
+                            **{**d.model_dump(), "probability": clamp_probability(d.probability)})
+        decision = {"id": bundle.id, "decision": judgment.decision, "probability": judgment.probability,
+                    "reason": judgment.reason}
+        await self.commit(Step.DECIDE, Step.DONE, status=Status.DONE, judgments=[judgment],
+                          events=[("decision", decision), ("done", {})])
 
 
 async def run_negotiation(repo: Repo, negotiation_id: str, owner: str, agents: Optional[Agents] = None) -> None:
@@ -220,6 +235,7 @@ async def run_negotiation(repo: Repo, negotiation_id: str, owner: str, agents: O
         Step.JUDGE: run.step_judge,
         Step.ANALYZE: run.step_analyze,
         Step.FINAL: run.step_final,
+        Step.DECIDE: run.step_decide,
     }
     try:
         while True:

@@ -1,0 +1,276 @@
+{
+  "p01": {
+    "skus": [
+      "HDY-01-GR-S",
+      "HDY-01-GR-M",
+      "HDY-01-GR-L",
+      "HDY-01-GR-XL"
+    ],
+    "fit": "Relaxed",
+    "styles": [
+      "Casual",
+      "Athletic",
+      "Loungewear"
+    ],
+    "gender": "Menswear",
+    "group": "top",
+    "displayCategory": "Hoodies",
+    "sourceAsset": "hoodie.jpg"
+  },
+  "p02": {
+    "skus": [
+      "PNT-01-TP-S",
+      "PNT-01-TP-M",
+      "PNT-01-TP-L",
+      "PNT-01-TP-XL"
+    ],
+    "fit": "Relaxed",
+    "styles": [
+      "Casual",
+      "Athletic",
+      "Loungewear"
+    ],
+    "gender": "Menswear",
+    "group": "bottom",
+    "displayCategory": "Pants",
+    "sourceAsset": "jogger.jpg"
+  },
+  "p03": {
+    "skus": [
+      "TEE-01-WH-S",
+      "TEE-01-WH-M",
+      "TEE-01-WH-L",
+      "TEE-01-WH-XL"
+    ],
+    "fit": "Regular",
+    "styles": [
+      "Casual",
+      "Loungewear"
+    ],
+    "gender": "Menswear",
+    "group": "top",
+    "displayCategory": "T-shirts",
+    "sourceAsset": "white-tee.jpg"
+  },
+  "p04": {
+    "skus": [
+      "SWE-01-WH-S",
+      "SWE-01-WH-M",
+      "SWE-01-WH-L",
+      "SWE-01-WH-XL"
+    ],
+    "fit": "Loose",
+    "styles": [
+      "Casual",
+      "Loungewear"
+    ],
+    "gender": "Menswear",
+    "group": "top",
+    "displayCategory": "Sweatshirts",
+    "sourceAsset": "crewneck.jpg"
+  },
+  "p05": {
+    "skus": [
+      "SRT-01-OT-S",
+      "SRT-01-OT-M",
+      "SRT-01-OT-L",
+      "SRT-01-OT-XL"
+    ],
+    "fit": "Loose",
+    "styles": [
+      "Casual",
+      "Athletic",
+      "Loungewear"
+    ],
+    "gender": "Menswear",
+    "group": "bottom",
+    "displayCategory": "Shorts",
+    "sourceAsset": "shorts.jpg"
+  },
+  "p06": {
+    "skus": [
+      "TEE-02-BK-S",
+      "TEE-02-BK-M",
+      "TEE-02-BK-L",
+      "TEE-02-BK-XL"
+    ],
+    "fit": "Loose",
+    "styles": [
+      "Streetwear",
+      "Casual"
+    ],
+    "gender": "Menswear",
+    "group": "top",
+    "displayCategory": "T-shirts",
+    "sourceAsset": "black-tee.jpg"
+  },
+  "p07": {
+    "skus": [
+      "PNT-02-OL-S",
+      "PNT-02-OL-M",
+      "PNT-02-OL-L",
+      "PNT-02-OL-XL"
+    ],
+    "fit": "Relaxed",
+    "styles": [
+      "Casual",
+      "Loungewear"
+    ],
+    "gender": "Menswear",
+    "group": "bottom",
+    "displayCategory": "Pants",
+    "sourceAsset": "trouser.jpg"
+  },
+  "p08": {
+    "skus": [
+      "HDY-02-TP-S",
+      "HDY-02-TP-M",
+      "HDY-02-TP-L",
+      "HDY-02-TP-XL"
+    ],
+    "fit": "Relaxed",
+    "styles": [
+      "Casual",
+      "Athletic",
+      "Loungewear"
+    ],
+    "gender": "Menswear",
+    "group": "top",
+    "displayCategory": "Hoodies",
+    "sourceAsset": "zip-hoodie.jpg"
+  },
+  "p09": {
+    "skus": [
+      "SOC-01-CR-OS"
+    ],
+    "fit": "Regular",
+    "styles": [
+      "Streetwear",
+      "Casual"
+    ],
+    "gender": "Menswear",
+    "group": "accessory",
+    "displayCategory": "Accessories",
+    "sourceAsset": "socks.jpg"
+  },
+  "p10": {
+    "skus": [
+      "TEE-03-GR-S",
+      "TEE-03-GR-M",
+      "TEE-03-GR-L",
+      "TEE-03-GR-XL"
+    ],
+    "fit": "Relaxed",
+    "styles": [
+      "Casual",
+      "Athletic",
+      "Loungewear"
+    ],
+    "gender": "Menswear",
+    "group": "top",
+    "displayCategory": "T-shirts",
+    "sourceAsset": "slate-tee.jpg"
+  },
+  "p11": {
+    "skus": [
+      "PNT-03-GR-S",
+      "PNT-03-GR-M",
+      "PNT-03-GR-L",
+      "PNT-03-GR-XL"
+    ],
+    "fit": "Regular",
+    "styles": [
+      "Athletic"
+    ],
+    "gender": "Menswear",
+    "group": "bottom",
+    "displayCategory": "Pants",
+    "sourceAsset": "athletic.jpg"
+  },
+  "p12": {
+    "skus": [
+      "SRT-02-OT-S",
+      "SRT-02-OT-M",
+      "SRT-02-OT-L",
+      "SRT-02-OT-XL"
+    ],
+    "fit": "Regular",
+    "styles": [
+      "Casual",
+      "Athletic",
+      "Loungewear"
+    ],
+    "gender": "Menswear",
+    "group": "bottom",
+    "displayCategory": "Shorts",
+    "sourceAsset": "shorts.jpg"
+  },
+  "p13": {
+    "skus": [
+      "JNS-01-IN-S",
+      "JNS-01-IN-M",
+      "JNS-01-IN-L",
+      "JNS-01-IN-XL"
+    ],
+    "fit": "Regular",
+    "styles": [
+      "Streetwear",
+      "Casual"
+    ],
+    "gender": "Menswear",
+    "group": "bottom",
+    "displayCategory": "Pants",
+    "sourceAsset": "jeans.jpg"
+  },
+  "p14": {
+    "skus": [
+      "SHT-01-WH-S",
+      "SHT-01-WH-M",
+      "SHT-01-WH-L",
+      "SHT-01-WH-XL"
+    ],
+    "fit": "Regular",
+    "styles": [
+      "Business casual",
+      "Formal"
+    ],
+    "gender": "Menswear",
+    "group": "top",
+    "displayCategory": "Shirts",
+    "sourceAsset": "shirt.jpg"
+  },
+  "p15": {
+    "skus": [
+      "JKT-01-NV-S",
+      "JKT-01-NV-M",
+      "JKT-01-NV-L",
+      "JKT-01-NV-XL"
+    ],
+    "fit": "Regular",
+    "styles": [
+      "Formal",
+      "Business casual"
+    ],
+    "gender": "Menswear",
+    "group": "top",
+    "displayCategory": "Jackets",
+    "sourceAsset": "blazer.jpg"
+  },
+  "p16": {
+    "skus": [
+      "JKT-02-IN-S",
+      "JKT-02-IN-M",
+      "JKT-02-IN-L",
+      "JKT-02-IN-XL"
+    ],
+    "fit": "Loose",
+    "styles": [
+      "Streetwear",
+      "Casual"
+    ],
+    "gender": "Menswear",
+    "group": "top",
+    "displayCategory": "Jackets",
+    "sourceAsset": "overshirt.jpg"
+  }
+}

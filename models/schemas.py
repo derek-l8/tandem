@@ -20,6 +20,7 @@ class Step(str, Enum):
     JUDGE = "JUDGE"
     ANALYZE = "ANALYZE"
     FINAL = "FINAL"
+    DECIDE = "DECIDE"
     DONE = "DONE"
 
 
@@ -94,6 +95,15 @@ class JudgmentDraft(BaseModel):
     price_score: Optional[float] = None
     fit_score: Optional[float] = None
     style_score: Optional[float] = None
+    decision: Optional[str] = None  # "accept" | "reject", only on the final offer
+
+
+class DecisionDraft(BaseModel):
+    """The buyer agent's answer to the final offer (json_formats.md section 8)."""
+
+    decision: Literal["accept", "reject"]
+    probability: float
+    reason: str
 
 
 class BundleRating(BaseModel):

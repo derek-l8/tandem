@@ -40,12 +40,16 @@ def test_full_run_one_round_of_five_then_analysis_and_final(repo, items):
 
         events = await repo.list_events(nid)
         assert [e.type for e in events] == [
-            "brief", "check", "bundles_proposed", "ratings", "heat", "analysis", "check", "final_offer", "done",
+            "brief", "check", "bundles_proposed", "ratings", "heat", "analysis", "check", "final_offer",
+            "decision", "done",
         ]
         proposed = events[2].payload["bundles"]
         assert len(proposed) == 5
         assert proposed[0]["images"] == [f"{s}.jpg" for s in proposed[0]["skus"]]
-        offer = events[-2].payload["final"]
+        offer = events[-3].payload["final"]
+        assert events[-2].payload["decision"] == "accept" and events[-2].payload["id"] == final.id
+        [decision] = await repo.list_judgments(nid, FINAL_ROUND)
+        assert decision.decision == "accept" and decision.probability == 0.88
         assert offer["skus"] == FINAL_SKUS
         assert offer["savings"] == round(offer["items_total"] - offer["price"], 2)
         assert offer["why"] == "pitch for final"

@@ -4,7 +4,7 @@ Troylabs
 ## Middle man backend (FastAPI on Vercel)
 
 Runs buyer agent ↔ seller agent through one round of 5 bundles:
-`BRIEF → PROPOSE → JUDGE → ANALYZE → FINAL → DONE`. All message shapes are in
+`BRIEF → PROPOSE → JUDGE → ANALYZE → FINAL → DECIDE → DONE`. All message shapes are in
 [json_formats.md](json_formats.md); prices are dollars, items are SKUs.
 
 1. **PROPOSE**: the seller builds 5 bundles from eligible inventory (in stock, buyer's sizes, no avoided colors).
@@ -14,6 +14,7 @@ Runs buyer agent ↔ seller agent through one round of 5 bundles:
    mean probability per category/color/material/size/style and marks a failing attribute `confirmed` only
    when the item-level verdicts and the averages agree.
 4. **FINAL**: the seller makes 1 offer built from that analysis; cold and dropped SKUs are rejected.
+5. **DECIDE**: the buyer accepts or rejects the final offer.
 
 Every seller output is validated (SKUs, stock, sizes, avoided colors, "must include" notes, budget,
 price band) and re-prompted once with the errors.
@@ -22,10 +23,10 @@ price band) and re-prompted once with the errors.
 |---|---|
 | `POST /api/negotiations` `{buyer_input, brief?}` | create; `brief` is an optional pre-built buyer context; returns `{id, stream_url}` |
 | `GET /api/negotiations/{id}/stream` | SSE: replays history, runs/resumes the negotiation, streams live (`?after=` / `Last-Event-ID`) |
-| `GET /api/negotiations/{id}` | JSON snapshot: bundles, ratings, heat, analysis, final offer |
+| `GET /api/negotiations/{id}` | JSON snapshot: bundles, ratings, heat, analysis, final offer, decision |
 | `POST /api/negotiations/{id}/retry` | re-arm a failed negotiation (resumes at the failed step) |
 
-SSE event types: `brief`, `check`, `bundles_proposed`, `ratings`, `heat`, `analysis`, `final_offer`, `done`, `error`.
+SSE event types: `brief`, `check`, `bundles_proposed`, `ratings`, `heat`, `analysis`, `final_offer`, `decision`, `done`, `error`.
 
 ### Setup
 1. Vercel → Storage → add **Neon Postgres** (sets `DATABASE_URL`, use the pooled URL) and add `OPENAI_API_KEY` (see *API keys* below).

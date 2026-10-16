@@ -25,7 +25,9 @@ class AgentError(Exception):
 def client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        _client = AsyncOpenAI(max_retries=3)  # reads OPENAI_API_KEY from the environment
+        # OPENAI_API_KEY is the standard name; OPENAI_KEY is what the Vercel project uses.
+        api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENAI_KEY")
+        _client = AsyncOpenAI(api_key=api_key, max_retries=3)
     return _client
 
 

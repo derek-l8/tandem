@@ -38,4 +38,4 @@ export const looks = [
 export type Profile={styles:string[];looks:string[];location:string;occasions:string;budget:number;topSize:string;bottomSize:string;fit:string};
 export const defaultProfile:Profile={styles:[],looks:[],location:'Los Angeles',occasions:'Working from home, coffee runs, and relaxed weekends',budget:200,topSize:'M',bottomSize:'M',fit:'Relaxed'};
 export type Rules={maxItems:number;maxDiscount:number};
-export type Bundle=WireBundle & {name:string;subtitle:string;scores:{price:number;fit:number;style:number};probability:number;baselineProbability?:number;reason:string;tradeoff:string;issue:'none'|'value'|'fit'|'style'|'coverage'};
+export type Bundle=WireBundle & {name:string;subtitle:string;scores:{price:number;fit:number;style:number};probability:number;reason:string;tradeoff:string;issue:'none'|'value'|'fit'|'style'|'coverage'};
